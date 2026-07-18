@@ -1,0 +1,18 @@
+{
+  "name": "qa",
+  "displayName": "QA Sweeps",
+  "version": "0.1.0",
+  "description": "Multi-agent QA sweeps of a running web app — functional bug sweep, measured responsive layout sweep, and exhaustive UX review, each with an adversarial verification pass that refutes weak findings before you read them.",
+  "license": "MIT",
+  "author": {
+    "name": "BnanaSkully"
+  },
+  "keywords": [
+    "qa",
+    "bug-hunting",
+    "design-review",
+    "responsive",
+    "accessibility",
+    "browser-automation"
+  ]
+}
