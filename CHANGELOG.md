@@ -3,6 +3,37 @@
 Notable changes to the `qa` plugin. Versions follow [semver](https://semver.org/); the version in
 `plugin.json` is what installers pin to, so it is bumped on every user-visible change.
 
+## [0.4.0] — 2026-07-19
+
+First run against a real, unfamiliar project (a single-tenant asset register on non-default
+ports, DB-backed session auth). The command procedure held up; two defects it exposed did not.
+
+### Fixed
+- **`readySelector` did not do what it promised.** When set, the readiness check was
+  `selector matches OR body has any content` — so the generic fallback fired regardless and the
+  selector added nothing. Verified in the field: an auth guard rendering `null` mid-redirect
+  produced a **blank screenshot reported as `rendered: true`, exit 0**. The selector is now
+  authoritative; if it never appears the page is not ready, and the run exits 4. A genuinely
+  rendered page still exits 0.
+- **No tool reported the URL it actually landed on**, only the one requested — so the
+  privileged-path redirect trap that `environment.md` warns about at length was undetectable
+  from tool output. Reproduced: requesting `/add` as a staff user reported `url: /add`,
+  `rendered: true`, and screenshotted a different page entirely. All tools now report
+  `landed_url` and a `redirected` flag.
+
+### Changed
+- The annotated `jsonc` schema block now warns that comments must be stripped; the loader is a
+  strict JSON parser and copying the schema verbatim fails.
+- `database.verify` guidance now recommends a query over an endpoint when the API needs auth —
+  an anonymous GET returning 401 is indistinguishable from a failed restore, permanently.
+- Probe error messages name `urls.web`, the documented key, rather than the internal one.
+
+### Verified in this run
+The `/qa:setup` database round trip — snapshot, insert a throwaway row, `DROP SCHEMA CASCADE`,
+restore, confirm the row is gone and the fingerprint matches — executed end to end against a
+real project's development database, which came back byte-identical. That procedure was added
+untested in 0.2.0; it now has a real run behind it.
+
 ## [0.3.0] — 2026-07-18
 
 Second review pass, on the Python probes. Several of these were reproduced doing real damage, so

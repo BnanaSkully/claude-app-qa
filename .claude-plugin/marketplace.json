@@ -14,7 +14,7 @@
       "source": "./plugins/qa",
       "displayName": "QA Sweeps",
       "description": "Four multi-agent QA sweeps of a running web app: /qa:bug-sweep (functional bugs), /qa:layout-sweep (measured responsive defects), /qa:ux-review (exhaustive design and UX review), and /qa:drive-app (persona-driven scenario runs that catch workflow failures the others cannot). Each fans out specialist agents, then puts the serious findings through a fresh adversarial verifier that tries to refute them, so the report you read is short and trustworthy.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "license": "MIT",
       "keywords": [
         "qa",

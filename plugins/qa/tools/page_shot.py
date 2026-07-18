@@ -100,7 +100,7 @@ def main(argv=None):
         A.die(
             "Cannot reach the app at {}\n  {}\n"
             "Start the app, or point the probes elsewhere with CLAUDE_QA_WEB_URL=<url> "
-            "or a 'web.url' in .claude/qa.json.".format(base_url, why),
+            "or a 'urls.web' in .claude/qa.json.".format(base_url, why),
             code=3,
         )
 
@@ -144,11 +144,18 @@ def main(argv=None):
         with open(out, "wb") as fh:
             fh.write(base64.b64decode(shot["data"]))
 
+        # Where the browser ACTUALLY ended up. An app that bounces an
+        # under-privileged identity off an admin route lands the probe on the
+        # dashboard, which screenshots as a perfectly healthy page. Reporting only
+        # the requested URL makes that indistinguishable from success.
+        actual = A.landed_url(cdp)
         payload = {
             "saved": out,
             "bytes": os.path.getsize(out),
             "path": path,
             "url": url,
+            "landed_url": actual,
+            "redirected": bool(actual and actual.rstrip("/") != url.rstrip("/")),
             "viewport": {"width": args.width, "height": args.height,
                          "scale": args.scale, "mobile": bool(args.mobile)},
             "full_page": bool(args.full_page),

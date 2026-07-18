@@ -264,7 +264,7 @@ def main(argv=None):
         A.die(
             "Cannot reach the app at {}\n  {}\n"
             "Start the app, or point the probes elsewhere with CLAUDE_QA_WEB_URL=<url> "
-            "or a 'web.url' in .claude/qa.json.".format(base_url, why),
+            "or a 'urls.web' in .claude/qa.json.".format(base_url, why),
             code=3,
         )
 
@@ -333,6 +333,10 @@ def main(argv=None):
             cdp.drain(1.2)
 
         goto(url)
+        # Captured on FIRST navigation, before any clicking can move us. If an app
+        # bounces this identity off the requested route, everything crawled below
+        # belongs to a different page than the one being reported on.
+        _landed = A.landed_url(cdp)
 
         load_problems = {
             "console": list(console), "exceptions": list(exceptions),
@@ -432,6 +436,8 @@ def main(argv=None):
         report = {
             "path": path,
             "url": url,
+            "landed_url": _landed,
+            "redirected": bool(_landed and _landed.rstrip("/") != url.rstrip("/")),
             "acting_as": {k: v for k, v in identity.items() if v},
             "auth_shim": auth_summary,
             "ready": ready["value"],

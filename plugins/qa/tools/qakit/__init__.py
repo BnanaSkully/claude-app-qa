@@ -29,6 +29,7 @@ from .cdp import (  # noqa: F401
     slug,
     wait_for_ws,
     wait_ready,
+    landed_url,
 )
 
 __version__ = "0.1.0"
@@ -53,5 +54,6 @@ __all__ = [
     "slug",
     "wait_for_ws",
     "wait_ready",
+    "landed_url",
     "__version__",
 ]

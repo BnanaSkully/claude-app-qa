@@ -9,6 +9,10 @@ Generate one with **`/qa:setup`**, which inspects the project and fills in what 
 
 ## Full schema
 
+> **The block below is annotated with `//` comments for readability. JSON does not allow
+> comments and the loader uses a strict parser — strip them before use, or start from the
+> minimum config further down, which is plain JSON and is what CI actually verifies.**
+
 ```jsonc
 {
   // What the app IS. Handed to every agent so its judgement is grounded in your product,
@@ -70,7 +74,10 @@ Generate one with **`/qa:setup`**, which inspects the project and fills in what 
     "snapshot": "docker compose exec -T db pg_dump -U app -Fc -f /tmp/qa.dump appdb",
     "fetch":    "docker compose cp db:/tmp/qa.dump {dest}",
     "restore":  "docker compose cp {src} db:/tmp/restore.dump; docker compose stop backend; docker compose exec -T db psql -U app -d appdb -c \"DROP SCHEMA public CASCADE; CREATE SCHEMA public;\"; docker compose exec -T db pg_restore -U app -d appdb --no-owner /tmp/restore.dump; docker compose start backend",
-    // A cheap query/endpoint whose result proves the restore actually landed.
+    // A cheap query or endpoint whose result proves the restore actually landed.
+    // Prefer a QUERY if your API needs auth: an anonymous GET that returns 401 looks
+    // identical to a failed restore, forever. e.g.
+    //   "docker compose exec -T db psql -U app -d appdb -t -c \"select count(*) from item\""
     "verify":   "GET /api/workspaces",
     // What that verify should look like on a clean seed, e.g. "invoice=402 user=13".
     "fingerprint": ""
@@ -110,12 +117,19 @@ Generate one with **`/qa:setup`**, which inspects the project and fills in what 
   },
 
   // A CSS selector that means "the app has finished rendering". WORTH SETTING.
+  //
   // Without it the probes fall back to "the body has any text or any child", which a
   // loading spinner or an empty nav shell satisfies instantly. On an app whose data
   // arrives in more than a second or so, every viewport then measures the SKELETON and
-  // the page is reported clean across the whole matrix — the exact false-clean these
-  // sweeps exist to avoid. Pick something that only exists once real content is on
-  // screen, e.g. "[data-loaded]", "main table tbody tr", ".dashboard-kpi".
+  // the page is reported clean across the whole matrix — the exact false clean these
+  // sweeps exist to avoid.
+  //
+  // When you DO set it, it is AUTHORITATIVE: if the selector never appears, the page is
+  // reported not-ready, the run exits 4 ("evidence not trustworthy") and nothing is
+  // recorded as clean. So pick something that appears only once real content is on
+  // screen — and not something that also matches the page's own loading state.
+  // Good: "[data-loaded]", "main table tbody tr", ".dashboard-kpi".
+  // Bad:  a wrapper like ".app" or ".page" that exists while "Loading…" is showing.
   "readySelector": null
 }
 ```

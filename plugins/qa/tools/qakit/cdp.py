@@ -93,8 +93,10 @@ DEFAULTS = {
     "api": {"url": None},
     "output": {"dir": "./checks"},
     "browser": {"executable": None, "args": []},
-    # Optional CSS selector that means "the app has rendered". Purely an
-    # optimisation: without it we fall back to readyState + non-empty body.
+    # CSS selector meaning "the app has rendered". When set it is AUTHORITATIVE:
+    # if it never appears the page is reported not-ready and the evidence is
+    # treated as untrustworthy. Without it we fall back to readyState plus a
+    # non-empty body, which a loading skeleton satisfies instantly.
     "readySelector": None,
     "auth": {},
 }
@@ -1107,12 +1109,19 @@ def wait_ready(cdp, config, timeout=20.0, poll=0.25):
     """
     selector = config.get("readySelector") if config else None
     if selector:
+        # AUTHORITATIVE, not an optimisation. This previously ORed the selector with
+        # the generic fallback below, which made it worthless: any non-empty body
+        # satisfied the fallback, so a page whose selector never appeared was still
+        # reported ready. Verified in the field — an app guard that renders null
+        # mid-redirect produced a BLANK screenshot with ready=true, which is precisely
+        # the false clean the selector exists to prevent. When the author has told us
+        # what "rendered" means for their app, that is the only thing we accept; if it
+        # never appears, the page is NOT ready and the caller must treat the evidence
+        # as untrustworthy rather than clean.
         check = (
             "(() => { const r = document.readyState;"
             " if (r !== 'complete' && r !== 'interactive') return false;"
-            " if (document.querySelector(%s)) return true;"
-            " return !!document.body && (document.body.innerText.trim().length > 0"
-            " || document.body.childElementCount > 0); })()" % json.dumps(selector)
+            " return !!document.querySelector(%s); })()" % json.dumps(selector)
         )
     else:
         check = (
@@ -1128,6 +1137,21 @@ def wait_ready(cdp, config, timeout=20.0, poll=0.25):
         time.sleep(poll)
     return False
 
+
+
+def landed_url(cdp):
+    """The URL the browser actually ENDED UP on, which is not always the one asked for.
+
+    An app that redirects an under-privileged identity away from an admin route sends the
+    probe to the dashboard instead. The screenshot then shows a perfectly healthy page, the
+    tool reports the URL it *requested*, and the admin route is recorded as fine without ever
+    having rendered. That false clean is the single most common way these sweeps lie, and it
+    is undetectable from the output unless the landed URL is reported separately.
+    """
+    try:
+        return cdp.js("window.location.href")
+    except Exception:
+        return None
 
 def die(message, code=2):
     """Print a human message on stderr and exit non-zero."""

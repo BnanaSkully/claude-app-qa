@@ -85,7 +85,7 @@ def main(argv=None):
         A.die(
             "Cannot reach the app at {}\n  {}\n"
             "Start the app, or point the probes elsewhere with CLAUDE_QA_WEB_URL=<url> "
-            "or a 'web.url' in .claude/qa.json.".format(base_url, why),
+            "or a 'urls.web' in .claude/qa.json.".format(base_url, why),
             code=3,
         )
 
