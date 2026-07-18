@@ -1,15 +1,24 @@
 # QA Sweeps — a Claude Code plugin
 
-Three multi-agent QA sweeps for a **running web app**, plus the browser tooling to drive it.
+Four multi-agent QA sweeps for a **running web app**, plus the browser tooling to drive it.
 
 | Command | Finds | Mutates data? |
 |---|---|---|
 | `/qa:bug-sweep` | Functional bugs — wrong numbers, broken flows, permission and tenancy leaks, 500s, races | Yes (snapshots + restores) |
 | `/qa:layout-sweep` | Measured responsive defects across 13 viewports — overflow, clipping, off-screen controls, tiny tap targets | No (read-only) |
 | `/qa:ux-review` | Design, UX, copy, a11y, performance, quality-of-life, guardrail and role-gap **suggestions** | Yes (snapshots + restores) |
+| `/qa:drive-app` | Workflow failures — actually *uses* the app as its real personas for a scripted run of periods | Yes (snapshots + restores) |
 | `/qa:setup` | Configures the plugin for your project | Writes config only |
 
 None of them fix anything. They find, verify, and write a dated report you triage.
+
+The first three test **surfaces** — a page, an endpoint, a viewport at a time. `/qa:drive-app` is the
+odd one out and worth understanding: it tests whether the app **holds together over time**. Agents
+take on your app's real personas and do the work the product exists for, period after period, then
+journal every action as expected-versus-observed. That catches what per-page testing structurally
+cannot — a number that drifts across a cycle, a handoff between two roles nobody tested, a daily task
+that's fine once and exhausting on the fifteenth repetition. It needs a scenario file describing your
+app's recurring cycle; `/qa:drive-app` will help you write one the first time.
 
 ## Install
 

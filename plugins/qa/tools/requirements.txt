@@ -1,0 +1,9 @@
+# qa browser probes — Python 3.9+
+#
+# Required: the CDP websocket client every probe speaks to the browser over.
+websocket-client>=1.0
+
+# Optional but recommended: makes browser-process cleanup exact and fast.
+# Without it, cleanup falls back to PowerShell (Windows) or pkill (macOS/Linux),
+# which works fine but is slower and shells out.
+psutil>=5.9

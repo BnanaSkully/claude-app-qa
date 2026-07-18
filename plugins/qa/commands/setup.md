@@ -104,6 +104,12 @@ you aren't sure about is far more dangerous than no restore command.
   back run after run.
 - **`.claude/qa/role-matrix.md`** — copy `reference/role-matrix.template.md` and pre-fill the
   roles you found. Skip it entirely if the app has no role model.
+- **`.claude/qa/scenarios/`** — create the folder, and drop in a **draft scenario** based on
+  `reference/scenario.template.md`, needed by `/qa:drive-app`. From the code, work out the app's core
+  recurring cycle (the thing a user does over and over, that the product exists to serve), who does
+  each part of it, and what a period of that work looks like. **Mark the draft clearly as a guess
+  that needs the user's correction** — you can infer the shape from the code, but only they know the
+  real workflow, and a scenario built on a wrong guess produces confident nonsense.
 
 ## 7. Verify the toolchain actually works
 
