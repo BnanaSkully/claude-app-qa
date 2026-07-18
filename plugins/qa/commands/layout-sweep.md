@@ -14,7 +14,7 @@ The user triages.
 
 ## 1. Preflight
 
-Follow the shared preflight spine — `${CLAUDE_PLUGIN_ROOT}/reference/preflight.md` (read config →
+Follow the shared preflight spine — `<plugin>/reference/preflight.md` (read config →
 app up → discover ids → read prior report → read the by-design list → one-line status). This
 command's own slots:
 
@@ -60,6 +60,9 @@ Resolve `$ARGUMENTS`:
 Spawn one **layout-hunter** per selected area — Agent tool, `subagent_type: layout-hunter`, **all
 calls in one message**. Give each:
 
+0. **The absolute path to the plugin's `tools/` directory** (preflight step 0), and the **API base
+   URL** from `urls.api`. Without the first, every tool call fails; without the second, an agent
+   probing endpoints is guessing hostnames.
 1. Its page list, with the discovered identity ids and any dynamic ids resolved.
 2. Its area's responsive hypotheses from the prior UX review (step 1).
 3. The brief: *"Probe each of your pages with `viewport_probe.py` across the full matrix, adjudicate

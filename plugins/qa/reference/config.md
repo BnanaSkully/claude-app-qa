@@ -104,8 +104,19 @@ Generate one with **`/qa:setup`**, which inspects the project and fills in what 
 
   "browser": {
     // null = auto-discover Chrome/Edge/Chromium/Brave. Set an absolute path to force one.
-    "executable": null
-  }
+    "executable": null,
+    // Extra command-line flags passed to the browser, e.g. ["--lang=en-GB"].
+    "args": []
+  },
+
+  // A CSS selector that means "the app has finished rendering". WORTH SETTING.
+  // Without it the probes fall back to "the body has any text or any child", which a
+  // loading spinner or an empty nav shell satisfies instantly. On an app whose data
+  // arrives in more than a second or so, every viewport then measures the SKELETON and
+  // the page is reported clean across the whole matrix — the exact false-clean these
+  // sweeps exist to avoid. Pick something that only exists once real content is on
+  // screen, e.g. "[data-loaded]", "main table tbody tr", ".dashboard-kpi".
+  "readySelector": null
 }
 ```
 
@@ -120,11 +131,16 @@ You do not need all of it. This alone materially improves a run:
     "description": "B2B invoicing SaaS, multi-tenant",
     "coreValue": "Invoice totals must be exactly right."
   },
-  "urls": { "web": "http://localhost:3000", "api": "http://localhost:8000", "health": "http://localhost:8000/health" },
+  "urls": { "web": "http://localhost:5173", "api": "http://localhost:8000", "health": "http://localhost:8000/health" },
   "commands": { "start": "docker compose up -d", "logs": "docker compose logs --since 10m backend" },
-  "paths": { "output": "checks" }
+  "paths": { "output": "qa-reports" }
 }
 ```
+
+> This example is deliberately written with non-default values (`5173`, `qa-reports`
+> rather than the built-in `3000` and `checks`). `scripts/validate.py` loads it through the
+> real config loader on every CI run and asserts those values come back out — which only
+> proves anything if they differ from the defaults. Keep it that way if you edit it.
 
 ## Environment variable overrides
 

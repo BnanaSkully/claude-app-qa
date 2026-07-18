@@ -19,20 +19,32 @@ every role, every empty/loading/error/success state, and you can *prove* it (see
 **not** licence to pad the list with trivia. Prioritise ruthlessly: a handful of high-leverage
 suggestions on top of proven-complete coverage beats a long low-value list every time.
 
-**The database is snapshotted before you start and restored after every agent finishes** — so you may
-freely drive, edit, toggle and submit; your mutations get rolled back by the orchestrator. You must
-still not run destructive crawls, delete records, seed data, or change code or schema.
+**Your brief states a `snapshot state:` — read it before you touch anything, and never assume.**
+
+- **`snapshot state: present`** — the orchestrator snapshotted the database before you started and
+  restores it after every agent finishes. You may freely drive, edit, toggle and submit; your
+  mutations get rolled back.
+- **`snapshot state: absent`** — there is **no rollback**. Every change you make is permanent, in a
+  database someone is working in. Render and read only: screenshots and GET requests, no `ui_crawl`
+  clicks, no form submissions, nothing that writes. If a suggestion can only be evidenced by a
+  write, record it under `coverage.not_reviewed` with the reason instead.
+- **If your brief does not state one, assume `absent`** and say so in your coverage notes. Guessing
+  wrong in that direction costs a little coverage; guessing wrong the other way corrupts real data.
+
+Either way: no destructive crawls, no deleting records, no seeding, no changing code or schema.
 
 ## Load these first
 
-Resolve from the plugin root (`${CLAUDE_PLUGIN_ROOT}`):
+Read these from the plugin directory whose **absolute path the orchestrator gives you** in
+your brief (written below as `<plugin>`). It is a real filesystem path, not a variable you can
+expand — if your brief did not include it, say so and stop rather than guessing:
 
 - **`reference/environment.md`** — app health, id discovery, the identity shim, the privileged-page
   false-clean trap, the probe tools, read-only guardrails.
 - **The project config** — `.claude/qa.json`. `app.description` and `app.coreValue` are what make
   your judgement specific to this product rather than generic web-design taste. Read them properly.
-- **The by-design list** — `.claude/qa/by-design.md`. **Never suggest away anything on it.**
-- **The role matrix** — `.claude/qa/role-matrix.md`, if present.
+- **The by-design list** — `.claude/qa/by-design.md` (or the path the config's `byDesign` names). **Never suggest away anything on it.**
+- **The role matrix** — `.claude/qa/role-matrix.md` (or the config's `roles.matrix`), if present.
 
 ## The lens — judge against this, not generic taste
 
@@ -61,6 +73,30 @@ For each role that can reach your page, drive it and ask three questions:
 3. **If the app has plan tiers,** review both the locked and unlocked state. The paywall or cap
    message is itself UX, and it must be clear and honest about what's missing and why.
 
+## Budget — read this before you start driving
+
+**Wall budget: ~30 to 45 minutes.** **Cap your return at ~12 suggestions**, keeping the highest
+leverage. **Stop a probe class once two consecutive probes yield nothing new.**
+
+"Exhaustive" describes the *coverage you can prove*, not unbounded effort. The combinatorics here
+explode quietly: every control, times every input state, times every role, times every screenshot
+you then have to actually look at. Left unbounded that is hundreds of tool calls per page, and the
+marginal suggestion after the first dozen is nearly always noise.
+
+**Spend the budget in this order**, so that running out costs you the least:
+
+1. The page's primary flow as its **main role**, complete.
+2. Every control and input **once**, as that role.
+3. The **most restricted** role that can reach the page — this is where role gaps and awkward
+   redacted states actually surface.
+4. One middle role, only if the matrix suggests it differs meaningfully.
+5. Remaining states and roles if budget survives.
+
+**Do not drive all five-plus roles through every control.** Highest privilege, lowest privilege, and
+one middle is enough to find real gaps; the rest is repetition. If you skip a role deliberately,
+record it in `coverage.not_reviewed` with "budget" as the reason — a declared gap is fine, a silent
+one is not.
+
 ## Exhaustive method — cover EVERYTHING on your page
 
 Work in this order. Each step feeds evidence into your suggestions.
@@ -72,7 +108,7 @@ Work in this order. Each step feeds evidence into your suggestions.
    coverage checklist** — you tick each item off, and anything you can't reach gets recorded with a
    reason.
 
-2. **Click everything.** `python ${CLAUDE_PLUGIN_ROOT}/tools/ui_crawl.py <path> --as-user <id> --as-tenant <id>`
+2. **Click everything.** `python <plugin>/tools/ui_crawl.py <path> --as-user <id> --as-tenant <id>`
    visits the page and clicks every visible control, opening and safely **cancelling** confirm
    dialogs, capturing console errors, uncaught exceptions, 400+ responses and on-screen error
    notices. **Run it once per role** that can reach the page, and compare what each role can and
@@ -101,7 +137,7 @@ Work in this order. Each step feeds evidence into your suggestions.
    **free debug port** and are therefore safe to run alongside your sibling agents). Do not bind a
    fixed port — you are running concurrently with roughly ten other agents.
 
-4. **Screenshot every state, and actually study the PNG.** `python ${CLAUDE_PLUGIN_ROOT}/tools/page_shot.py <path>
+4. **Screenshot every state, and actually study the PNG.** `python <plugin>/tools/page_shot.py <path>
    <out.png> --as-user <id> --as-tenant <id>` renders the page with real data as a chosen user. Then
    **Read the image**. A screenshot you captured but never looked at is not evidence.
    - Capture, per applicable role: **default · each tab or sub-view · every modal open · a filled-in

@@ -23,14 +23,14 @@ actually lose a user.
 
 ## 1. Preflight
 
-Follow the shared preflight spine — `${CLAUDE_PLUGIN_ROOT}/reference/preflight.md`. Then this
+Follow the shared preflight spine — `<plugin>/reference/preflight.md`. Then this
 command's own checks:
 
 - **Find the scenario.** Look in `.claude/qa/scenarios/`. If `$ARGUMENTS` names one, use it;
   if there's exactly one, use it; if there are several, list them and ask which.
 
   **If there are none, STOP and help the user write one.** Read
-  `${CLAUDE_PLUGIN_ROOT}/reference/scenario.template.md`, then work out from the codebase what the
+  `<plugin>/reference/scenario.template.md`, then work out from the codebase what the
   app's core recurring cycle actually is — the thing a user does over and over, that the product
   exists to serve — and draft a scenario for them to correct. **Do not invent a scenario and run it
   silently**: a scenario built on a wrong guess about what the app is for produces a report full of
@@ -74,7 +74,8 @@ never actually existed.
 Split the scenario into **3 slices** by default (or `--slices N`), each a contiguous run of periods,
 with the closing steps in the last slice.
 
-Give **every** slice: the scenario file, its **period range**, and the run folder. Give **every slice
+Give **every** slice: **the absolute path to the plugin's `tools/` directory** (preflight step 0),
+the **API base URL** from `urls.api`, the scenario file, its **period range**, and the run folder. Give **every slice
 after the first** the previous slice's `state-summary.json` **and the last ~40 lines of
 `journal.md`**, so it picks up the ids and running totals exactly where the last one stopped.
 

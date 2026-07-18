@@ -17,7 +17,7 @@ restores after** — so existing data is left exactly as it was.
 
 ## 1. Preflight
 
-Follow the shared preflight spine — `${CLAUDE_PLUGIN_ROOT}/reference/preflight.md`. This command's
+Follow the shared preflight spine — `<plugin>/reference/preflight.md`. This command's
 own slots:
 
 - **Data — use only what already exists. Never seed or create.** Discover what's there via the
@@ -68,7 +68,7 @@ Pure redirects don't need their own review.
 Run the width pass **once, centrally**, before spawning agents:
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/tools/responsive_audit.py --widths 800,1280 <every path in scope>
+python <plugin>/tools/responsive_audit.py --widths 800,1280 <every path in scope>
 ```
 
 It writes `<output>/audit/<slug>_<width>.png`. In each agent's brief, point it at its paths' shots
@@ -77,10 +77,19 @@ under-reported defect class, and past runs have found it at 1280 too.
 
 ## 5. Fan out (parallel)
 
+**Before spawning, tell the user what this will cost and get a yes.** State the number of agents,
+that each runs on a large model driving a headless browser, and roughly how long it will take. A
+`full` sweep is the most expensive thing in this plugin by a wide margin, and nobody should
+discover that from their bill. Skip the confirmation only if the user already said `full` knowingly
+in this run. `quick` needs no confirmation.
+
 Spawn the selected `ux-reviewer` agents (`subagent_type: ux-reviewer`), **all in one message**. If
 the machine struggles under that many concurrent headless browsers, split into **two waves**. Give
 each agent:
 
+0. **The absolute path to the plugin's `tools/` directory** (preflight step 0) and an explicit
+   **`snapshot state: present`** — or `absent` for `quick`, which never snapshots. The agent's
+   guardrails switch entirely on that flag: with `absent` it must not write at all. Never omit it.
 1. Its cluster's pages and front/back code locations, and the ids to use.
 2. The **roles that can reach its pages** — brief it to *drive every applicable role*.
 3. Its area's **prior suggestions and "Looked good" entries**, with the STILL-OPEN instruction.

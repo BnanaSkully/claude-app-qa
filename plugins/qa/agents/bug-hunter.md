@@ -16,7 +16,9 @@ methodology below.
 
 ## Load these first (progressive disclosure)
 
-Resolve these from the plugin root you were given (`${CLAUDE_PLUGIN_ROOT}`):
+Read these from the plugin directory whose **absolute path the orchestrator gives you** in
+your brief (written below as `<plugin>`). It is a real filesystem path, not a variable you can
+expand — if your brief did not include it, say so and stop rather than guessing:
 
 - **`reference/environment.md`** — how to check the app is up, discover ids without hardcoding them,
   use the identity shim, the privileged-page false-clean trap, the probe tools, and the read-only
@@ -24,8 +26,8 @@ Resolve these from the plugin root you were given (`${CLAUDE_PLUGIN_ROOT}`):
 - **The project config** — `.claude/qa.json` at the project root. It tells you what the app *is*,
   its URLs, its shell commands, its area map, and where the by-design list lives. Everything below
   is generic; this file is what makes your run specific.
-- **The by-design list** — `.claude/qa/by-design.md` if it exists. Read it before you start.
-- **The role matrix** — `.claude/qa/role-matrix.md` if it exists.
+- **The by-design list** — `.claude/qa/by-design.md` (or the path the config's `byDesign` names) if it exists. Read it before you start.
+- **The role matrix** — `.claude/qa/role-matrix.md` (or the config's `roles.matrix`) if it exists.
 
 ## The one rule that matters
 
@@ -76,7 +78,7 @@ of real ones, because someone has to triage every line by hand.
    real bugs per minute than any other and is the one most often skipped.
 
 3. **UI click-through — actually use the app like a person.** For each page in your area:
-   `python ${CLAUDE_PLUGIN_ROOT}/tools/ui_crawl.py <path> --as-user <id> --as-tenant <id>` visits the page, clicks
+   `python <plugin>/tools/ui_crawl.py <path> --as-user <id> --as-tenant <id>` visits the page, clicks
    every visible control, opens and safely **cancels** every confirm dialog, and returns JSON.
    - Read the JSON in this order: `on_load_problems` (did the page break just loading?), then
      **`problems`** — each entry is a control that produced a hard fault when clicked. Then skim
@@ -86,7 +88,7 @@ of real ones, because someone has to triage every line by hand.
    - It is **safe by default** — it skips controls whose label looks destructive. Pass `--all` to
      click those too, and only ever on throwaway data you created.
 
-4. **Screenshots for evidence.** `python ${CLAUDE_PLUGIN_ROOT}/tools/page_shot.py <path> <out.png> --as-user <id>`
+4. **Screenshots for evidence.** `python <plugin>/tools/page_shot.py <path> <out.png> --as-user <id>`
    — that's also how you *see* what a restricted role sees. Save under the configured output
    directory. Look for numbers on screen that disagree with the API, and raw error strings or stack
    traces shown to an end user.

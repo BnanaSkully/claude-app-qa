@@ -22,17 +22,29 @@ leaving orphaned browser processes behind.
 
 ## Discovering ids — never hardcode
 
+- **The API base URL is `urls.api` from the config, and the orchestrator passes it in your brief.**
+  Never guess a hostname or port. If neither the brief nor the config names one, say so and confine
+  yourself to the UI rather than probing invented endpoints.
 - If `urls.openapi` is configured, fetch it: it enumerates every real endpoint. Pull your area's
-  endpoints from it rather than guessing paths.
+  endpoints from it rather than guessing paths. Without it, discover endpoints from the code
+  (route definitions) rather than from imagination.
 - Use `auth.discover.tenants` and `auth.discover.users` from the config to look up real ids **every
   run**. Ids from a previous run, a prior report, or an example in a document are stale by
   definition — a run built on them tests nothing.
 
 ## The identity shim and the privileged-page trap
 
-- The probe tools take `--as-user` and `--as-tenant` and apply whatever `auth.localStorage`,
-  `auth.cookies` and `auth.header` the config declares, before first paint. With no `auth` block
-  they run anonymously, which is fine for a public app.
+- The probe tools take `--as-user` and `--as-tenant` and apply the config's `auth.localStorage`
+  and `auth.cookies` before first paint. With no `auth` block they run anonymously, which is fine
+  for a public app.
+- **`auth.header` is NOT applied by the browser tools** — it is for the direct API calls *you* make
+  with `curl` or `Invoke-RestMethod`. Send it yourself on those. If an app's only impersonation
+  mechanism is a trusted header, then browser-driven role coverage is not available: say so in
+  `not_tested` rather than reporting a role as covered when every page was actually fetched
+  anonymously.
+- **A signed session cookie cannot be forged by the shim.** Setting a cookie to a literal value
+  fails signature validation, so the probe lands on a login wall. If your screenshots show a login
+  page, that is what happened — record it rather than reporting the page.
 - **For any path listed in `auth.privilegedPaths`, act as a user holding `auth.privilegedRole`.**
   Apps routinely redirect an under-privileged identity away from an admin route to the dashboard.
   A probe that follows that redirect measures the *dashboard*, sees nothing wrong, and records the
@@ -73,8 +85,10 @@ fabricate a result.
 - **Never** `git commit` or `git push`. **Never** run a command that destroys the development
   database (`docker compose down -v` and equivalents). **Never** run a production build inside a
   running dev container — it corrupts the dev server's build cache. No destructive raw SQL.
-- **Never seed.** Use the data that is already there. If your page needs data that doesn't exist,
-  record the gap rather than manufacturing it.
+- **Never seed bulk or fixture data**, and never run a project seeder. Use the data that is
+  already there; if your page needs data that does not exist, record the gap rather than
+  manufacturing it. Creating a **small number of `QA-` prefixed throwaway records for one specific
+  test** is different, and is expected of the hunting agents — those must be listed in `residue`.
 - **Ground every finding in observed behaviour** — a response body, a log line, a crawl result, a
   screenshot, or a measurement. Code-reading alone identifies a *suspicion*, never a finding.
 - **Clean up after yourself.** Name anything you create with a `QA-` prefix so a later run can

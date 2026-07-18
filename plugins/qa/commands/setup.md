@@ -64,8 +64,13 @@ Find how the app knows who the user is in development: a header the API trusts, 
 the frontend reads, a session cookie, a dev-login endpoint. Grep for likely names (`X-User-Id`,
 `actingUser`, `impersonat`, `devLogin`, `AUTH_MODE`).
 
-- Fill in `auth.localStorage`, `auth.cookies` and `auth.header` as templates over `{userId}` and
-  `{tenantId}`.
+- Fill in `auth.localStorage` and `auth.cookies` as templates over `{userId}` and `{tenantId}`.
+  **These two are the only shims the browser tools apply.** You may also record `auth.header` for
+  the direct API calls agents make with `curl`, but be honest with the user that it does **not**
+  affect browser-driven page rendering.
+- **If the app authenticates with a signed session cookie or a JWT, browser role coverage is not
+  available** — a forged cookie value fails signature validation and the probe lands on the login
+  page. Say so plainly rather than writing a shim that cannot work.
 - Fill in `auth.discover` with the real endpoints that list tenants and users.
 - **Fill in `auth.privilegedPaths` and `auth.privilegedRole`** — any route that redirects an
   under-privileged user away. This matters more than it looks: a probe run as the wrong identity
@@ -89,9 +94,37 @@ Two things worth getting right, learned the hard way:
   records behind while telling you it worked.
 - **Always give `database.verify` a real value**, so a restore can be *checked* rather than trusted.
 
-**If you can't work out a safe restore, leave `database` out entirely** and say so. The sweeps will
-then refuse their mutating passes and explain why — which is the correct outcome. A restore command
-you aren't sure about is far more dangerous than no restore command.
+### You MUST prove the round trip before writing the `database` block
+
+**Do not write a snapshot/restore command you have not executed end to end.** These commands are
+inferred from a cold read of an unfamiliar project, and the first one contains `DROP SCHEMA`. If
+they are wrong, the failure mode is not a confusing error — it is the user's development database
+dropped and a restore that then fails, because the DROP needs no valid dump to succeed while the
+restore does. A `--clean` restore can even report "errors ignored" and exit 0 having restored
+nothing.
+
+So run the whole cycle now, while nothing depends on it:
+
+1. **Confirm the target is local.** The database host must be loopback or a local container. If it
+   resolves anywhere else, **stop** — do not write a `database` block for a remote host, and tell
+   the user why.
+2. **Snapshot**, then check the dump exists and its size is plausible for this database — not
+   merely non-zero. A dump pointed at the wrong container or the wrong role produces a small,
+   valid-looking, useless file.
+3. **Record the fingerprint** via `database.verify` and put the real value in `database.fingerprint`
+   rather than leaving it empty.
+4. **Make one trivial reversible change** — a single throwaway row named with a `QA-` prefix.
+5. **Restore**, then confirm both that the throwaway row is gone **and** that `database.verify`
+   matches the fingerprint from step 3.
+6. **Only if all of that passes, write the `database` block.**
+
+If any step fails, **leave `database` out entirely** and tell the user exactly which step failed
+and what you would have run. The sweeps then refuse their mutating passes and explain why, which is
+the correct outcome. **A restore command nobody has tested is far more dangerous than no restore
+command**, because the sweeps trust it completely.
+
+Tell the user plainly that you executed a real snapshot and restore against their development
+database as part of setup.
 
 ## 6. Write the files
 
@@ -115,13 +148,20 @@ you aren't sure about is far more dangerous than no restore command.
 
 Don't hand back a config you never tested.
 
-1. `pip install -r ${CLAUDE_PLUGIN_ROOT}/tools/requirements.txt`
+1. `pip install -r <plugin>/tools/requirements.txt`
 2. Take a screenshot of the app's main page:
-   `python ${CLAUDE_PLUGIN_ROOT}/tools/page_shot.py / <output>/setup-smoke.png`
+   `python <plugin>/tools/page_shot.py / setup-smoke.png` (a relative name already resolves
+   inside the configured output directory — do not prefix it, or you get `checks/checks/...`)
 3. **Read the PNG.** Does it show the real app, or a login wall, or an error page? A login wall means
    the identity shim isn't configured correctly — fix it now rather than letting the first sweep
    discover it.
-4. Run `python ${CLAUDE_PLUGIN_ROOT}/tools/viewport_probe.py /` and confirm you get parseable JSON back.
+4. Run `python <plugin>/tools/viewport_probe.py /` and confirm you get parseable JSON back.
+5. **Determine `readySelector`** and write it into the config. Find a CSS selector that exists only
+   once the app has really rendered — not the nav shell, not a spinner. Check it by comparing the
+   smoke screenshot against the DOM. Without it the probes fall back to "the body has any text",
+   which a skeleton satisfies instantly, and every viewport then measures the loading state and
+   reports the page clean. That is a false clean, and false cleans are the one failure these sweeps
+   must never produce.
 
 If the browser isn't found, tell the user which browsers the tools look for and that `CLAUDE_QA_BROWSER`
 can point at one explicitly.

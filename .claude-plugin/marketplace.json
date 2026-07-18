@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "qa-marketplace",
-  "description": "Autonomous QA sweeps for running web apps — functional bug hunts, measured responsive defect hunts, and exhaustive UX reviews, each with an adversarial verification pass.",
+  "description": "Autonomous QA sweeps for running web apps — functional bug hunts, measured responsive defect hunts, exhaustive UX reviews, and persona-driven scenario runs, each with an adversarial verification pass.",
   "owner": {
     "name": "BnanaSkully"
   },
@@ -13,8 +13,8 @@
       "name": "qa",
       "source": "./plugins/qa",
       "displayName": "QA Sweeps",
-      "description": "Three multi-agent QA sweeps of a running web app: /qa:bug-sweep (functional bugs), /qa:layout-sweep (measured responsive defects), /qa:ux-review (exhaustive design and UX review). Each fans out specialist agents, then puts the serious findings through a fresh adversarial verifier that tries to refute them, so the report you read is short and trustworthy.",
-      "version": "0.1.0",
+      "description": "Four multi-agent QA sweeps of a running web app: /qa:bug-sweep (functional bugs), /qa:layout-sweep (measured responsive defects), /qa:ux-review (exhaustive design and UX review), and /qa:drive-app (persona-driven scenario runs that catch workflow failures the others cannot). Each fans out specialist agents, then puts the serious findings through a fresh adversarial verifier that tries to refute them, so the report you read is short and trustworthy.",
+      "version": "0.2.0",
       "license": "MIT",
       "keywords": [
         "qa",

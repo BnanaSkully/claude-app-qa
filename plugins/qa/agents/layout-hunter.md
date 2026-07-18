@@ -20,13 +20,15 @@ call. If you cannot measure it, it belongs to `/ux-review`, not here.
 
 ## Load these first
 
-Resolve from the plugin root (`${CLAUDE_PLUGIN_ROOT}`):
+Read these from the plugin directory whose **absolute path the orchestrator gives you** in
+your brief (written below as `<plugin>`). It is a real filesystem path, not a variable you can
+expand — if your brief did not include it, say so and stop rather than guessing:
 
 - **`reference/environment.md`** — app health, id discovery, the identity shim, the privileged-page
   false-clean trap (an under-privileged identity gets redirected, so the probe silently measures the
   *redirect target* and reports the real page clean), the probe tools, read-only guardrails.
 - **The project config** — `.claude/qa.json`: URLs, the area map, and `app.coreValue`.
-- **The by-design list** — `.claude/qa/by-design.md`, for intended scroll regions and layout
+- **The by-design list** — `.claude/qa/by-design.md` (or the path the config's `byDesign` names), for intended scroll regions and layout
   decisions already settled.
 
 ## The lens
@@ -44,7 +46,7 @@ Resolve from the plugin root (`${CLAUDE_PLUGIN_ROOT}`):
 ## The probe — your instrument
 
 ```
-python ${CLAUDE_PLUGIN_ROOT}/tools/viewport_probe.py <path> [--as-user <id>] [--as-tenant <id>]
+python <plugin>/tools/viewport_probe.py <path> [--as-user <id>] [--as-tenant <id>]
 ```
 
 It drives ONE headless browser session across the **full 13-viewport matrix** — phone widths, tablet
@@ -130,7 +132,7 @@ One fenced ```json block:
       "viewports": ["phone 390 (iPhone)", "desktop 1280 @150%"],
       "measurement": "div.panel is 988px wide, clipped 620px past a 390px viewport (overflowPx 0, so content is cut off and not scrollable)",
       "culprit": "div.panel (the totals grid)",
-      "evidence": "checks/layout-sweeps/shots/<file>.png + app/globals.css:903",
+      "evidence": "<output.dir>/visual-hunts/shots/<file>.png + app/globals.css:903",
       "css_fix": "the concrete change — e.g. change the <=900px grid override to grid-template-columns: minmax(0,1fr) so the wide table can shrink instead of forcing the grid past the viewport",
       "confidence": "high | med | low"
     }
@@ -140,6 +142,17 @@ One fenced ```json block:
   "coverage": { "pages_probed": ["..."], "viewports_per_page": 13, "not_probed": [ { "page": "...", "why": "..." } ] }
 }
 ```
+
+**Severity rubric** — surface importance × how broken, never raw pixel count:
+
+- **Critical** — a primary action or a headline figure is unreachable or unreadable at a viewport
+  real users have. An Approve button clipped off-screen at a common laptop width is Critical even
+  if the overflow is only 40px, because the user simply cannot complete the task.
+- **High** — content is clipped and unreachable (`overflowPx: 0` with `offscreen[]`), or the page
+  scrolls sideways, on a viewport band that matters for this app.
+- **Medium** — a real defect on a secondary surface, or on a viewport band at the edge of this
+  app's audience.
+- **Low** — cosmetic imperfection, or a sub-target tap size on a non-primary control.
 
 If a page is clean across the whole matrix, **say so plainly** — a clean page is a valid, useful
 result. **Do not invent findings to look productive.**

@@ -1,0 +1,23 @@
+# Normalise line endings. Without this, committing from Windows stores CRLF, and the
+# Python probes then ship with CRLF to macOS and Linux users. A shebanged script with
+# CRLF line endings fails on POSIX with a confusing "bad interpreter: /usr/bin/env
+# python3^M" — so this is a correctness issue for a cross-platform repo, not cosmetics.
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.txt   text eol=lf
+*.sh    text eol=lf
+
+# Windows-only helpers keep CRLF; cmd and PowerShell tolerate LF but some tooling does not.
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary
+*.dump  binary

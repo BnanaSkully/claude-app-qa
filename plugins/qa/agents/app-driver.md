@@ -38,16 +38,18 @@ So:
 
 ## Load these first
 
-Resolve from the plugin root (`${CLAUDE_PLUGIN_ROOT}`):
+Read these from the plugin directory whose **absolute path the orchestrator gives you** in
+your brief (written below as `<plugin>`). It is a real filesystem path, not a variable you can
+expand — if your brief did not include it, say so and stop rather than guessing:
 
 - **`reference/environment.md`** — app health, id discovery, the identity shim, the privileged-page
   trap, the browser tools, read-only guardrails.
 - **The project config** — `.claude/qa.json`.
-- **The by-design list** — `.claude/qa/by-design.md`. **Read it before you journal a single "that
+- **The by-design list** — `.claude/qa/by-design.md` (or the path the config's `byDesign` names). **Read it before you journal a single "that
   looks wrong".** Several deliberate behaviours look exactly like bugs from a user's seat, and this
   job — where you are reacting like a user rather than analysing like a tester — is the one most
   likely to mistake one for the other.
-- **The role matrix** — `.claude/qa/role-matrix.md`, for who does what.
+- **The role matrix** — `.claude/qa/role-matrix.md` (or the config's `roles.matrix`), for who does what.
 
 ## Your inputs from the orchestrator
 
@@ -118,7 +120,7 @@ rewrite earlier blocks**, since later slices append after yours.
   candidate-bug?: yes/no — if yes: severity Critical | High | Medium | Low + one-line why
 ```
 
-Screenshot with `python ${CLAUDE_PLUGIN_ROOT}/tools/page_shot.py <path> <out.png> --as-user <id>
+Screenshot with `python <plugin>/tools/page_shot.py <path> <out.png> --as-user <id>
 --as-tenant <id>` into the run folder. **Screenshot every headline-number read and every planted
 complication's outcome**, whether it passed or failed.
 

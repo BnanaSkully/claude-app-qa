@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Structure and cross-references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Catches the drift that only shows up on a stranger's first run: an agent a command
+      # spawns but does not ship, a tool flag that no longer exists, a leftover absolute
+      # path from the author's machine.
+      - name: Validate plugin structure
+        run: python scripts/validate.py
+
+  python:
+    name: Tools on Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor the tools claim to support; if an f-string or a match
+        # statement sneaks in, this job is what catches it rather than a user.
+        python-version: ["3.9", "3.11", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          # The tools were developed on Windows and claim cross-platform support.
+          # Both other platforms get exercised at the version most people run.
+          - os: windows-latest
+            python-version: "3.11"
+          - os: macos-latest
+            python-version: "3.11"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip -r plugins/qa/tools/requirements.txt
+
+      - name: Byte-compile every tool
+        run: python -m compileall -q plugins/qa/tools
+
+      # An import exercises module-level code that compilation alone does not: the
+      # platform branches in browser discovery, the config loader, the constants.
+      - name: Import the support module
+        working-directory: plugins/qa/tools
+        run: python -c "import qakit; print('qakit imported on', __import__('platform').system())"
+
+      # --help proves argparse is wired up and the script runs end to end without a
+      # browser or a running app, on every platform.
+      - name: Every tool responds to --help
+        working-directory: plugins/qa/tools
+        run: |
+          python ui_crawl.py --help > /dev/null
+          python viewport_probe.py --help > /dev/null
+          python page_shot.py --help > /dev/null
+          python responsive_audit.py --help > /dev/null
+        shell: bash
+
+      # No app is running in CI, so this must fail cleanly with the documented exit
+      # code and an actionable message, not a raw traceback.
+      - name: Unreachable app exits cleanly, not with a traceback
+        working-directory: plugins/qa/tools
+        shell: bash
+        run: |
+          set +e
+          out=$(CLAUDE_QA_WEB_URL=http://127.0.0.1:9 python page_shot.py / out.png 2>&1)
+          code=$?
+          set -e
+          echo "exit=$code"
+          echo "$out"
+          if echo "$out" | grep -q "Traceback (most recent call last)"; then
+            echo "::error::A predictable failure surfaced as a raw traceback"
+            exit 1
+          fi
+          if [ "$code" -eq 0 ]; then
+            echo "::error::Unreachable app exited 0; it must exit non-zero"
+            exit 1
+          fi

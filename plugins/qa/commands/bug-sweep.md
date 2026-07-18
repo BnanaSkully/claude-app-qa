@@ -12,7 +12,7 @@ anything you find** — this command finds and reports; the user triages and dec
 
 ## 1. Preflight
 
-Follow the shared preflight spine — `${CLAUDE_PLUGIN_ROOT}/reference/preflight.md` (read config →
+Follow the shared preflight spine — `<plugin>/reference/preflight.md` (read config →
 app up → discover ids → read prior report → read the by-design list → read the solutions store →
 one-line status). Skipping it risks a run against a dead app, hardcoded stale ids, or a false-clean
 privileged page. This command's own slots:
@@ -72,6 +72,9 @@ Resolve `$ARGUMENTS`:
 Spawn one **bug-hunter** subagent per selected area — Agent tool, `subagent_type: bug-hunter`, **all
 calls in a single message** so they run concurrently. Give each agent:
 
+0. **The absolute path to the plugin's `tools/` directory** (preflight step 0), and the **API base
+   URL** from `urls.api`. Without the first, every tool call fails; without the second, an agent
+   probing endpoints is guessing hostnames.
 1. Its area name, pages, routes and `attackFirst` notes (including anything you re-assigned in
    step 2), plus the discovered ids it needs.
 2. Its area's **"Ruled out / by design" entries from the last report**, verbatim — "treat these as an

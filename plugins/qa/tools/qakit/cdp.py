@@ -146,6 +146,44 @@ def _apply_env_overrides(data):
     return data
 
 
+def _normalise(raw):
+    """Map the documented config shape onto the internal one.
+
+    ``reference/config.md`` documents ``urls.web`` / ``urls.api`` / ``paths.output``,
+    because that groups readably for the person writing the file. Internally the
+    accessors want ``web.url`` / ``api.url`` / ``output.dir``. Without this bridge a
+    fully correct config parses fine, sets nothing, and every probe silently targets
+    the default ``http://localhost:3000`` while the user stares at a file that says
+    otherwise — a failure with no error message anywhere. Both shapes are accepted;
+    the internal one wins if somebody writes both.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    out = dict(raw)
+
+    urls = out.get("urls")
+    if isinstance(urls, dict):
+        for src, (section, key) in {
+            "web": ("web", "url"),
+            "api": ("api", "url"),
+            "health": ("health", "url"),
+            "openapi": ("openapi", "url"),
+        }.items():
+            if urls.get(src) and not (out.get(section) or {}).get(key):
+                out.setdefault(section, {})
+                if isinstance(out[section], dict):
+                    out[section][key] = urls[src]
+
+    paths = out.get("paths")
+    if isinstance(paths, dict):
+        if paths.get("output") and not (out.get("output") or {}).get("dir"):
+            out.setdefault("output", {})
+            if isinstance(out["output"], dict):
+                out["output"]["dir"] = paths["output"]
+
+    return out
+
+
 def load_config(start=None):
     """Load project config, or sensible defaults when there is no config at all.
 
@@ -165,7 +203,7 @@ def load_config(start=None):
         if not isinstance(file_data, dict):
             raise QAError("Config file {} must contain a JSON object".format(path))
 
-    merged = _apply_env_overrides(_deep_merge(DEFAULTS, file_data))
+    merged = _apply_env_overrides(_deep_merge(DEFAULTS, _normalise(file_data)))
     cfg = Config(merged)
     cfg.source = path
     # Project root = the folder holding .claude/, else cwd. Relative output

@@ -23,13 +23,15 @@ doubt, `refuted` or `uncertain` — never a rubber-stamp `confirmed`.
 
 ## Load these first
 
-Resolve from the plugin root (`${CLAUDE_PLUGIN_ROOT}`):
+Read these from the plugin directory whose **absolute path the orchestrator gives you** in
+your brief (written below as `<plugin>`). It is a real filesystem path, not a variable you can
+expand — if your brief did not include it, say so and stop rather than guessing:
 
 - **`reference/environment.md`** — app health, id discovery, the identity shim, the privileged-page
   false-clean trap, the probe tools, read-only guardrails.
 - **The project config** — `.claude/qa.json`. Read `app.coreValue`: it names what must never be
   wrong, and therefore what is most worth getting right in both directions.
-- **The by-design list** — `.claude/qa/by-design.md`. **This is your sharpest weapon.** A
+- **The by-design list** — `.claude/qa/by-design.md` (or the path the config's `byDesign` names). **This is your sharpest weapon.** A
   candidate that merely describes something on that list is refuted on the spot. The orchestrator
   also hands you the last report's ruled-out entries and any solutions write-ups — extensions of the
   same list.

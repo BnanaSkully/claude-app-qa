@@ -21,12 +21,14 @@ Default to skepticism: when in doubt, `refuted` or `uncertain`, never a rubber-s
 
 ## Load these first
 
-Resolve from the plugin root (`${CLAUDE_PLUGIN_ROOT}`):
+Read these from the plugin directory whose **absolute path the orchestrator gives you** in
+your brief (written below as `<plugin>`). It is a real filesystem path, not a variable you can
+expand — if your brief did not include it, say so and stop rather than guessing:
 
 - **`reference/environment.md`** — app health, id discovery, the identity shim, the privileged-page
   false-clean trap, read-only guardrails.
 - **The project config** — `.claude/qa.json`, especially `app.coreValue`.
-- **The by-design list** — `.claude/qa/by-design.md`. A suggestion that restates something here
+- **The by-design list** — `.claude/qa/by-design.md` (or the path the config's `byDesign` names). A suggestion that restates something here
   is `refuted (by-design)`. **Skipping this file means blessing anti-suggestions.**
 
 ## The lens — same as the review

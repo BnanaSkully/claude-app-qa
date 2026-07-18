@@ -7,6 +7,20 @@ which prior-report glob to read, whether it snapshots the database — inline in
 **Failure mode of skipping a step:** a run against a dead app, hardcoded stale ids, a false-clean
 privileged page, or re-hunting a bug you already fixed and documented.
 
+0. **Resolve the plugin's absolute path, and hand it to every agent you spawn.** The tools live
+   at `<plugin root>/tools/`. Work out that absolute path once, here — from the location of this
+   file, or by locating `plugins/qa/tools/page_shot.py` under the installed plugin cache — and
+   confirm the directory exists before fanning out.
+
+   **Then include it verbatim in every agent brief**, e.g. *"your probe tools are at
+   `C:\...\plugins\qa\tools\`; invoke them with that absolute path."*
+
+   Subagent prompts are not shell contexts, so `${CLAUDE_PLUGIN_ROOT}` does **not** expand inside
+   them. An agent that pastes that literal string into a command gets `python /tools/ui_crawl.py`
+   and a file-not-found on its very first tool call — which costs the whole area, because the
+   retry fails identically and the area is then recorded NOT COVERED. Passing the real path is
+   the single cheapest thing that makes a sweep work at all.
+
 1. **Read the config.** `.claude/qa.json` at the project root ([schema](config.md)). It supplies
    URLs, shell commands, the area map, roles and the by-design list. **If it's missing, say so
    plainly and offer `/qa:setup`** — then continue in fallback mode (web app at
