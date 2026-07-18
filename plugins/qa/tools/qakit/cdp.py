@@ -16,6 +16,7 @@ importable and cleanly fallen back on when it is not.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import platform
@@ -448,8 +449,52 @@ def shutdown(proc, profile_dir):
             except Exception:
                 pass
 
-    time.sleep(0.3)
+    _remove_profile(profile_dir)
+    _sweep_stale_profiles()
+
+
+def _remove_profile(profile_dir, attempts=6):
+    """Delete a run's profile directory, retrying while the OS releases its locks.
+
+    Windows in particular releases a browser profile's file handles LAZILY after the
+    process exits, so a single ``rmtree(..., ignore_errors=True)`` routinely loses that
+    race and returns silently, leaving the entire profile (hundreds of MB) behind. Doing
+    that once per run is how thousands of stale profiles accumulate in the temp
+    directory. Retry with backoff so the normal race is simply won.
+    """
+    if not profile_dir:
+        return
+    for attempt in range(attempts):
+        time.sleep(0.3 * (attempt + 1))
+        try:
+            shutil.rmtree(profile_dir)
+            return
+        except FileNotFoundError:
+            return
+        except Exception:
+            continue
     shutil.rmtree(profile_dir, ignore_errors=True)
+
+
+def _sweep_stale_profiles(max_age_hours=6):
+    """Collect profiles orphaned by runs that died before their cleanup could run.
+
+    A ``finally:`` block does not execute if the process is hard-killed (Ctrl-C, a
+    crashed agent, a harness timeout), so those profiles would otherwise live forever.
+    Anything older than ``max_age_hours`` cannot belong to a live run, which keeps this
+    safe when several probes run concurrently.
+    """
+    try:
+        base = os.environ.get("TEMP") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+        cutoff = time.time() - max_age_hours * 3600
+        for path in glob.glob(os.path.join(base, "qa-cdp-*")):
+            try:
+                if os.path.isdir(path) and os.path.getmtime(path) < cutoff:
+                    shutil.rmtree(path, ignore_errors=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------
