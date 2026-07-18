@@ -39,6 +39,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qakit import cdp as A  # noqa: E402
 
 
+#: exit status meaning "the run did not produce trustworthy evidence" — distinct
+#: from 0 (clean) and from the usage/reachability codes die() uses (2 and 3).
+MEASUREMENT_FAILED_EXIT = 4
+
 # (label, css_width, css_height, device_scale_factor, mobile).
 # Scaled desktop/laptop rows carry the EFFECTIVE CSS width that device produces
 # at that OS display-scaling percentage.
@@ -192,7 +196,7 @@ def main(argv=None):
         )
 
     try:
-        shots_dir = A.output_path(config, "visual-hunts", "shots")
+        shots_dir = A.output_path(config, "visual-hunts", "shots", is_dir=True)
     except A.QAError as exc:
         A.die(exc)
 
@@ -214,7 +218,7 @@ def main(argv=None):
         A.die(exc)
 
     try:
-        cdp = A.connect(A.wait_for_ws(port))
+        cdp = A.connect(A.wait_for_ws(port, proc=proc))
         cdp.send("Page.enable")
         cdp.send("Runtime.enable")
 
@@ -229,14 +233,26 @@ def main(argv=None):
             cdp.send("Emulation.setDeviceMetricsOverride",
                      {"width": w, "height": h, "deviceScaleFactor": dsf, "mobile": mobile})
             cdp.send("Page.navigate", {"url": url})
-            A.wait_ready(cdp, config, timeout=18)
+            ready = bool(A.wait_ready(cdp, config, timeout=18))
             time.sleep(args.settle)              # settle async data + layout
 
-            m = cdp.js(MEASURE_JS) or {}
+            m = cdp.js(MEASURE_JS)
+            entry = {"label": label, "width": w, "height": h, "scale": dsf,
+                     "mobile": mobile, "ready": ready}
+            # None means the measurement itself failed — MEASURE_JS walks every
+            # element calling getComputedStyle, then again per ancestor, so it is
+            # genuinely slow on a large DOM and does time out. `or {}` turned that
+            # into an entry with no vw and no docW, has_defect False, and a
+            # viewport recorded as CLEAN. A timing-out probe and a defect-free
+            # page must never be indistinguishable.
+            if m is None:
+                entry["measurement_failed"] = True
+                entry["reason"] = "MEASURE_JS returned nothing (evaluation timed out or threw)"
+                result["viewports"].append(entry)
+                continue
             if not mobile:
                 m["tinyTargets"] = []            # small targets are only a defect at touch widths
             has_defect = bool(m.get("overflowPx") or m.get("offscreen") or m.get("tinyTargets"))
-            entry = {"label": label, "width": w, "height": h, "scale": dsf, "mobile": mobile}
             entry.update(m)
             if has_defect:
                 name = "{}__{}w{}x.png".format(A.slug(path), w, str(dsf).replace(".", "_"))
@@ -252,13 +268,24 @@ def main(argv=None):
         defective = [v for v in result["viewports"] if v.get("overflowPx") or v.get("offscreen") or v.get("tinyTargets")]
         result["viewports_probed"] = len(result["viewports"])
         result["viewports_with_defects"] = len(defective)
+        result["viewports_unmeasured"] = len(
+            [v for v in result["viewports"] if v.get("measurement_failed") or v.get("ready") is False])
     except A.QAError as exc:
-        A.shutdown(proc, profile)
+        # No shutdown() here: die() raises SystemExit, so the finally: below runs
+        # and does the full kill-plus-sweep. Doing it in both places ran the
+        # whole teardown twice on every error path.
         A.die(exc)
     finally:
         A.shutdown(proc, profile)
 
     print(json.dumps(result, indent=2))
+    # "No defects found" is only meaningful if the measurements actually ran.
+    if result.get("viewports_unmeasured"):
+        sys.stderr.write(
+            "MEASUREMENT UNRELIABLE: {} of {} viewports were not measured "
+            "(JS failure or page never ready) — do not read this run as clean.\n".format(
+                result["viewports_unmeasured"], result["viewports_probed"]))
+        return MEASUREMENT_FAILED_EXIT
     return 0
 
 

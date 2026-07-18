@@ -28,6 +28,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qakit import cdp as A  # noqa: E402
 
 
+#: exit status meaning "the run did not produce trustworthy evidence" — distinct
+#: from 0 (clean) and from the usage/reachability codes die() uses (2 and 3).
+MEASUREMENT_FAILED_EXIT = 4
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="responsive_audit.py",
@@ -85,7 +90,7 @@ def main(argv=None):
         )
 
     try:
-        audit_dir = A.output_path(config, "audit")
+        audit_dir = A.output_path(config, "audit", is_dir=True)
     except A.QAError as exc:
         A.die(exc)
 
@@ -103,7 +108,7 @@ def main(argv=None):
         A.die(exc)
 
     try:
-        cdp = A.connect(A.wait_for_ws(port))
+        cdp = A.connect(A.wait_for_ws(port, proc=proc))
         cdp.send("Page.enable")
         cdp.send("Runtime.enable")
 
@@ -123,7 +128,10 @@ def main(argv=None):
                     "mobile": w < args.mobile_below,
                 })
                 cdp.send("Page.navigate", {"url": url})
-                A.wait_ready(cdp, config, timeout=18)
+                # Recorded per shot, not discarded: a screenshot of a page that
+                # never finished loading looks exactly like a real one, and would
+                # otherwise be filed as valid evidence.
+                ready = bool(A.wait_ready(cdp, config, timeout=18))
                 time.sleep(args.settle)
 
                 out = os.path.join(audit_dir, "{}_{}.png".format(A.slug(path), w))
@@ -136,16 +144,27 @@ def main(argv=None):
                 with open(out, "wb") as fh:
                     fh.write(base64.b64decode(shot["data"]))
                 payload["shots"].append({"path": path, "width": w, "file": out,
-                                         "bytes": os.path.getsize(out)})
+                                         "bytes": os.path.getsize(out), "ready": ready})
                 sys.stderr.write("saved {}\n".format(out))
     except A.QAError as exc:
-        A.shutdown(proc, profile)
+        # No shutdown() here: die() raises SystemExit, so the finally: below runs
+        # and does the full kill-plus-sweep. Doing it in both places ran the
+        # whole teardown twice on every error path.
         A.die(exc)
     finally:
         A.shutdown(proc, profile)
 
+    unready = [s for s in payload["shots"] if s.get("ready") is False]
+    payload["shots_not_ready"] = len(unready)
     print(json.dumps(payload, indent=2))
-    return 0 if not payload["errors"] else 1
+    if payload["errors"]:
+        return 1
+    if unready:
+        sys.stderr.write(
+            "MEASUREMENT UNRELIABLE: {} of {} screenshots were taken before the page "
+            "was ready.\n".format(len(unready), len(payload["shots"])))
+        return MEASUREMENT_FAILED_EXIT
+    return 0
 
 
 if __name__ == "__main__":

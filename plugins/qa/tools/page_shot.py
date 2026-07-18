@@ -27,6 +27,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from qakit import cdp as A  # noqa: E402
 
 
+#: exit status meaning "the run did not produce trustworthy evidence" — distinct
+#: from 0 (clean) and from the usage/reachability codes die() uses (2 and 3).
+MEASUREMENT_FAILED_EXIT = 4
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="page_shot.py",
@@ -69,6 +74,14 @@ def main(argv=None):
     base_url = A.resolve_url(config, "/")
 
     out = args.out
+    # Validate the extension BEFORE anything is created on disk. Without this,
+    # `page_shot.py / noextension` had output_path() infer "no extension, so it
+    # must be a directory", create a DIRECTORY named noextension, and then die
+    # with a raw PermissionError opening it for writing — leaving the junk
+    # directory behind on a run that produced nothing.
+    if not out.lower().endswith(".png"):
+        A.die("The output file must end in .png — got {!r}.\n"
+              "Example: python page_shot.py /dashboard dashboard.png".format(out))
     if os.path.isabs(out):
         parent = os.path.dirname(out)
         if parent:
@@ -102,7 +115,7 @@ def main(argv=None):
 
     payload = {}
     try:
-        cdp = A.connect(A.wait_for_ws(port))
+        cdp = A.connect(A.wait_for_ws(port, proc=proc))
         cdp.send("Page.enable")
         cdp.send("Runtime.enable")
         cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -144,12 +157,20 @@ def main(argv=None):
             "rendered": rendered,
         }
     except A.QAError as exc:
-        A.shutdown(proc, profile)
+        # No shutdown() here: die() raises SystemExit, so the finally: below runs
+        # and does the full kill-plus-sweep. Doing it in both places ran the
+        # whole teardown twice on every error path.
         A.die(exc)
     finally:
         A.shutdown(proc, profile)
 
     print(json.dumps(payload, indent=2))
+    # A screenshot of a page that never finished rendering is not evidence.
+    if payload.get("rendered") is False:
+        sys.stderr.write(
+            "MEASUREMENT UNRELIABLE: the page never reached a ready state; "
+            "{} may show a partly-loaded page.\n".format(payload.get("saved")))
+        return MEASUREMENT_FAILED_EXIT
     return 0
 
 

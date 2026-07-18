@@ -47,16 +47,32 @@ If no browser is found the error lists every path that was tried and how to fix 
 | `qakit/` | (support module, not run directly) | Browser discovery, config loading, CDP client, process cleanup, identity shim. |
 
 Every `<path>` may be given with or without a leading slash (`/settings`, `settings`,
-`invoices/123`, or `home` for the site root).
+`invoices/123`, or `home` for the site root). A full URL (`https://staging.example.com/a`)
+is also accepted and overrides the configured base URL.
+
+See [Exit codes](#exit-codes) below — in particular code `4`, which means the run did not
+produce trustworthy evidence.
 
 ### What each one is for
 
 - **`ui_crawl.py`** — clicks every visible control on one page and reports the faults that
   fall out (uncaught exceptions, console errors, 5xx responses, scary on-screen text).
-  **Safe by default:** it skips controls whose label looks destructive (delete / remove /
-  unmap / unlink / wipe / reset / discard / log out) and cancels any confirm dialog it
-  opens. `--all` disables that skip — disposable environments only. It mutates data by
-  design; do not point it at production.
+  **Safe by default, in two tiers:**
+  - **Destructive** labels (delete / remove / archive / clear / erase / void / revoke /
+    suspend / merge / overwrite / restore / finalise / lock period / post to ledger /
+    approve / refund / `cancel <noun>` / log out …) are skipped. `--all` disables
+    this skip — disposable environments only.
+  - **Irreversible-external** labels (send / resend / email / SMS / notify / invite /
+    webhook / share / charge / payout) are **never** clicked, and **`--all` does not
+    override them**. A reseed undoes a deleted row; nothing un-sends an invoice to a real
+    customer, and staging pointed at live SMTP or a live payment key is the normal case.
+
+  Any confirm dialog is closed with **Escape first**, falling back only to an exact-word
+  Cancel/Close button that is itself checked against both lists — so a dialog whose
+  destructive action reads "Cancel plan" is never mistaken for the way out. If nothing
+  safe qualifies, the dialog is left open and reported rather than guessed at.
+
+  It mutates data by design; do not point it at production.
 - **`viewport_probe.py`** — measures responsive defects across a 13-row device x
   display-scaling matrix. Objective signals only, not taste.
 - **`page_shot.py`** — one screenshot, anonymous or as an identity.
@@ -130,10 +146,16 @@ on macOS, and `which` against `google-chrome`, `chromium`, `chromium-browser`,
 
 | Code | Meaning |
 |---|---|
-| `0` | Success |
+| `0` | Success, and the result is trustworthy |
 | `1` | Ran, but something in the work failed (e.g. a screenshot did not capture) |
-| `2` | Setup problem: no browser, bad config, bad arguments |
+| `2` | Setup problem: no browser, bad config, bad arguments (the message names the offending key and file) |
 | `3` | The app is not reachable at the configured URL |
+| `4` | **The run did not produce trustworthy evidence** — the page never became ready, or an in-page measurement failed |
+
+Code `4` is the one to watch. A probe that could not measure must never be read as a clean
+result, so it is deliberately *not* `0`. The JSON says which measurement failed: `ready:
+false`, a top-level `measurement_failed`, or per-viewport `measurement_failed` and the
+`viewports_unmeasured` count.
 
 ## Notes on two details that are easy to get wrong
 

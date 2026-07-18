@@ -86,7 +86,11 @@ of real ones, because someone has to triage every line by hand.
      duplicate warning or a 422 on deliberately bad input is the app working correctly; a 4xx where a
      normal click should have succeeded is a real bug.
    - It is **safe by default** — it skips controls whose label looks destructive. Pass `--all` to
-     click those too, and only ever on throwaway data you created.
+     click those too, and only ever on throwaway data you created. `--all` does **not** unlock
+     send/email/SMS/webhook/charge controls: those are never clicked, because no reseed can
+     un-send an email to a real person.
+   - Check `ready` and `measurement_failed` before you trust a quiet report. A crawl that exits
+     **4** did not produce usable evidence — that is not the same as "found nothing".
 
 4. **Screenshots for evidence.** `python <plugin>/tools/page_shot.py <path> <out.png> --as-user <id>`
    — that's also how you *see* what a restricted role sees. Save under the configured output

@@ -1,7 +1,7 @@
 {
   "name": "qa",
   "displayName": "QA Sweeps",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Multi-agent QA sweeps of a running web app — functional bug sweep, measured responsive layout sweep, exhaustive UX review, and persona-driven scenario runs, each with an adversarial verification pass that refutes weak findings before you read them.",
   "license": "MIT",
   "author": {

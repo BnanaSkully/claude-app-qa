@@ -16,12 +16,14 @@ importable and cleanly fallen back on when it is not.
 
 from __future__ import annotations
 
-import glob
+import copy
+import errno
 import json
 import os
 import platform
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -99,12 +101,22 @@ DEFAULTS = {
 
 
 def _deep_merge(base, overlay):
-    out = dict(base)
+    """Merge ``overlay`` over ``base``, copying nested dicts all the way down.
+
+    The copy is load-bearing, not tidiness. A shallow ``dict(base)`` leaves the
+    sub-dicts SHARED with the base, so ``_apply_env_overrides`` writes straight
+    through into module-level ``DEFAULTS``: one ``load_config()`` with
+    CLAUDE_QA_WEB_URL set permanently rewrites ``DEFAULTS["web"]["url"]`` for the
+    life of the process, and every later ``load_config()`` in that process returns
+    the poisoned URL even with the env var unset — a probe silently driving the
+    wrong app, with nothing on screen to explain it.
+    """
+    out = copy.deepcopy(base) if isinstance(base, dict) else {}
     for k, v in (overlay or {}).items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = _deep_merge(out[k], v)
         else:
-            out[k] = v
+            out[k] = copy.deepcopy(v)
     return out
 
 
@@ -160,7 +172,65 @@ def _apply_env_overrides(data):
     return data
 
 
-def _normalise(raw):
+#: config keys the probes actually consume, and the type each one must be.
+#: (dotted path, accepted types, human description of the right shape)
+_CONFIG_SCHEMA = [
+    ("web", dict, "an object like {\"url\": \"http://localhost:3000\"}"),
+    ("web.url", str, "a URL string"),
+    ("api", dict, "an object like {\"url\": \"http://localhost:8000\"}"),
+    ("api.url", str, "a URL string"),
+    ("output", dict, "an object like {\"dir\": \"./checks\"}"),
+    ("output.dir", str, "a directory path string"),
+    ("browser", dict, "an object like {\"executable\": \"/path/to/chrome\"}"),
+    ("browser.executable", str, "a path string"),
+    ("browser.args", (list, str), "a list of argument strings"),
+    ("readySelector", str, "a CSS selector string"),
+    ("auth", dict, "an object with 'localStorage' and/or 'cookies'"),
+    ("auth.localStorage", dict, "an object mapping key -> value template"),
+    ("auth.cookies", dict, "an object mapping cookie name -> value template"),
+    ("urls", dict, "an object like {\"web\": \"...\", \"api\": \"...\"}"),
+    ("paths", dict, "an object like {\"output\": \"./checks\"}"),
+]
+
+
+def _validate_config(data, source=None):
+    """Type-check the config keys the probes consume, before anything reads them.
+
+    Without this, a wrong type surfaces as a raw traceback from deep inside a
+    helper (``'str' object has no attribute 'items'``), or — far worse — not at
+    all: ``"web": "http://prod"`` makes ``Config.get("web.url")`` return None, the
+    probes fall back to localhost:3000, and the whole run silently drives the
+    WRONG APP with no message anywhere. Naming the offending key and the file is
+    the difference between a five-second fix and an hour of confusion.
+    """
+    if not isinstance(data, dict):
+        raise QAError("Config {} must contain a JSON object, got {}".format(
+            source or "(defaults)", type(data).__name__))
+    where = " in {}".format(source) if source else ""
+    for dotted, types, shape in _CONFIG_SCHEMA:
+        node = data
+        for part in dotted.split("."):
+            if not isinstance(node, dict) or part not in node:
+                node = _MISSING
+                break
+            node = node[part]
+        if node is _MISSING or node is None:
+            continue                      # absent / explicitly null is always fine
+        if not isinstance(node, types):
+            raise QAError(
+                "Config key {!r}{} must be {}, but it is {} ({!r}).".format(
+                    dotted, where, shape, type(node).__name__, node)
+            )
+
+
+class _Missing:
+    """Sentinel: 'this key was absent', distinct from 'present and null'."""
+
+
+_MISSING = _Missing()
+
+
+def _normalise(raw, source=None):
     """Map the documented config shape onto the internal one.
 
     ``reference/config.md`` documents ``urls.web`` / ``urls.api`` / ``paths.output``,
@@ -174,6 +244,12 @@ def _normalise(raw):
     if not isinstance(raw, dict):
         return raw
     out = dict(raw)
+
+    # Every lookup below assumes the sections are dicts. A config that writes
+    # "web": "http://x" (a string where an object belongs) would otherwise raise
+    # a bare AttributeError from inside a helper, with no mention of the file or
+    # the key — so the shape is checked first and reported properly.
+    _validate_config(out, source)
 
     urls = out.get("urls")
     if isinstance(urls, dict):
@@ -217,7 +293,11 @@ def load_config(start=None):
         if not isinstance(file_data, dict):
             raise QAError("Config file {} must contain a JSON object".format(path))
 
-    merged = _apply_env_overrides(_deep_merge(DEFAULTS, _normalise(file_data)))
+    merged = _apply_env_overrides(_deep_merge(DEFAULTS, _normalise(file_data, path)))
+    # Re-check after the env overrides: an env var can introduce a bad shape of
+    # its own (CLAUDE_QA_BROWSER_ARGS is split into a list, the rest stay strings),
+    # and a value that only becomes wrong at this stage must still be reported.
+    _validate_config(merged, path or "environment overrides")
     cfg = Config(merged)
     cfg.source = path
     # Project root = the folder holding .claude/, else cwd. Relative output
@@ -411,7 +491,33 @@ def launch(config=None, headless=True, window_size=(1400, 1600), extra_args=None
     return proc, profile, port
 
 
+def _is_browser_process_name(name):
+    """Does this process name belong to the Chromium family we launched?
+
+    Prefix matching, not exact, because the reparented helpers that actually leak
+    are named after their parent with a suffix: macOS runs ``Google Chrome Helper``,
+    ``Google Chrome Helper (Renderer)``, ``(GPU)`` and ``(Plugin)``, and Linux adds
+    ``chrome_crashpad_handler``. An exact-name test matches NONE of those, so on
+    macOS the cleanup killed only the launcher and left behind precisely the
+    processes the whole routine exists to reap.
+    """
+    low = (name or "").lower()
+    if not low:
+        return False
+    if low in {n.lower() for n in BROWSER_PROCESS_NAMES}:
+        return True
+    return any(low.startswith(n.lower()) for n in BROWSER_PROCESS_NAMES) or \
+        low.startswith("chrome_crashpad") or low.startswith("chrome-crashpad")
+
+
 def _kill_with_psutil(leaf):
+    """Kill every process whose command line carries this run's profile leaf.
+
+    The leaf is a unique per-run directory name (tag-pid-port), so the cmdline
+    match alone identifies our processes; the name check is a secondary sanity
+    filter, and the self-PID guard is what genuinely matters — this interpreter's
+    own command line can contain the leaf.
+    """
     killed = 0
     me = os.getpid()
     for proc in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -421,8 +527,8 @@ def _kill_with_psutil(leaf):
             cmdline = proc.info.get("cmdline") or []
             if not any(leaf in part for part in cmdline):
                 continue
-            name = (proc.info.get("name") or "").lower()
-            if name and name not in {n.lower() for n in BROWSER_PROCESS_NAMES}:
+            name = proc.info.get("name") or ""
+            if name and not _is_browser_process_name(name):
                 continue
             proc.kill()
             killed += 1
@@ -449,8 +555,83 @@ def _kill_windows_powershell(leaf):
 
 
 def _kill_posix(leaf):
-    subprocess.run(["pkill", "-f", leaf], stdout=subprocess.DEVNULL,
-                   stderr=subprocess.DEVNULL, timeout=25)
+    """Terminate this run's browser processes on POSIX, then insist.
+
+    A bare ``pkill -f <leaf>`` has NO process-name filter, so it kills anything
+    whose command line merely contains the leaf — including the wrapper shell
+    that invoked the probe, or an editor with the path open. The Windows branch
+    already treats that name filter as load-bearing for exactly this reason;
+    ``pkill -x`` cannot express "name is one of a family", so the matching is done
+    here instead, against ``ps`` output.
+
+    SIGTERM first so the browser can flush and exit cleanly, SIGKILL only for
+    whatever ignores it. Returns the number of processes signalled.
+    """
+    me = os.getpid()
+
+    def ps_field(spec):
+        """pid -> field, for a ps format whose field is LAST on the line.
+
+        Two separate calls rather than one ``pid=,comm=,args=``, because process
+        names legitimately contain spaces: macOS runs ``Google Chrome Helper
+        (Renderer)``. Splitting a combined line into three fields shredded that
+        name into "Google" + leftovers, the name filter then rejected it, and the
+        very helper processes this routine exists to reap survived. Keeping the
+        variable-width field last means one split(None, 1) is always correct.
+        """
+        try:
+            out = subprocess.run(
+                ["ps", "-eo", spec],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=25,
+            )
+        except FileNotFoundError:
+            # No ps: a distroless/slim image. Say so rather than reporting
+            # success — a silent no-op here is how leaked browsers go unnoticed.
+            raise QAError(
+                "Cannot clean up browser processes: neither 'psutil' nor 'ps' is available.\n"
+                "Install psutil (pip install psutil) so the probes can reap the browser "
+                "processes they start, or the profile directory will be left behind."
+            )
+        found = {}
+        for line in (out.stdout or b"").decode("utf-8", "replace").splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) != 2:
+                continue
+            try:
+                found[int(parts[0])] = parts[1].strip()
+            except ValueError:
+                continue
+        return found
+
+    cmdlines = ps_field("pid=,args=")
+    names = ps_field("pid=,comm=")
+
+    targets = []
+    for pid, argv in cmdlines.items():
+        if pid == me or leaf not in argv:
+            continue
+        if not _is_browser_process_name(os.path.basename(names.get(pid, ""))):
+            continue
+        targets.append(pid)
+
+    # Resolved via getattr rather than named directly: signal.SIGKILL does not
+    # exist on Windows, and a module-level reference to it would make this
+    # function unimportable-in-practice there — including from tests — even
+    # though only the POSIX branch ever calls it.
+    sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
+    for sig in (signal.SIGTERM, sigkill):
+        alive = []
+        for pid in targets:
+            try:
+                os.kill(pid, sig)
+                alive.append(pid)
+            except OSError:
+                pass                      # already gone, or not ours to signal
+        if not alive:
+            break
+        targets = alive
+        time.sleep(0.5)
+    return len(targets)
 
 
 def shutdown(proc, profile_dir):
@@ -471,8 +652,11 @@ def shutdown(proc, profile_dir):
 
     if psutil is not None:
         try:
-            _kill_with_psutil(leaf)
-            done = True
+            # "Did not raise" is NOT success. If psutil is installed but every
+            # proc.kill() hits AccessDenied, nothing died — and treating that as
+            # done skipped BOTH the platform fallback and proc.terminate(), so a
+            # full set of browser processes leaked while cleanup reported fine.
+            done = _kill_with_psutil(leaf) > 0
         except Exception:
             done = False
 
@@ -483,6 +667,12 @@ def shutdown(proc, profile_dir):
             else:
                 _kill_posix(leaf)
             done = True
+        except QAError as exc:
+            # No usable way to reap processes on this box (no psutil, no ps).
+            # Say it out loud: swallowing it means leaked browsers accumulate
+            # invisibly, which is the failure this whole routine exists to stop.
+            sys.stderr.write("{}\n".format(exc))
+            done = False
         except Exception:
             done = False
 
@@ -528,21 +718,71 @@ def _remove_profile(profile_dir, attempts=6):
     shutil.rmtree(profile_dir, ignore_errors=True)
 
 
+#: exactly the shape ``_profile_dir()`` creates: qa-cdp-{tag}-{pid}-{port}.
+#: Anchored, because the sweep DELETES RECURSIVELY and must never match a
+#: directory this launcher did not create. A ``qa-cdp-*`` glob happily matched
+#: (and destroyed) a user's own ``qa-cdp-my-important-notes``, and even a bare
+#: ``qa-cdp-``. Nothing outside this pattern is ours to remove.
+_PROFILE_DIR_RE = re.compile(r"qa-cdp-[A-Za-z0-9_]+-(\d+)-\d+$")
+
+
+def _pid_alive(pid):
+    """Is this PID currently running? Used to protect a LIVE run's profile."""
+    if pid <= 0:
+        return False
+    try:
+        if psutil is not None:
+            return psutil.pid_exists(pid)
+        if platform.system() == "Windows":
+            out = subprocess.run(
+                ["tasklist", "/FI", "PID eq {}".format(pid), "/NH"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15,
+            )
+            return str(pid).encode() in (out.stdout or b"")
+        os.kill(pid, 0)          # signal 0 = existence check, sends nothing
+        return True
+    except OSError as exc:
+        # EPERM means it exists but belongs to another user — still alive.
+        return exc.errno == errno.EPERM
+    except Exception:
+        # Unknown => assume alive. Being wrong here only leaves a stale directory;
+        # being wrong the other way deletes a running session's profile.
+        return True
+
+
 def _sweep_stale_profiles(max_age_hours=6):
     """Collect profiles orphaned by runs that died before their cleanup could run.
 
     A ``finally:`` block does not execute if the process is hard-killed (Ctrl-C, a
     crashed agent, a harness timeout), so those profiles would otherwise live forever.
-    Anything older than ``max_age_hours`` cannot belong to a live run, which keeps this
-    safe when several probes run concurrently.
+
+    Two guards, in order of authority:
+      * the directory name must match ``_PROFILE_DIR_RE`` exactly — we only ever
+        delete directories this launcher itself created;
+      * the PID embedded in that name must be dead. The PID is a FACT about
+        whether the owning run still exists; mtime is only a heuristic, and it is
+        wrong in exactly the cases that hurt — an idle ``--headed`` session left
+        open, or a laptop suspended mid-run, both look "old" while very much alive.
+
+    The age check stays on as a backstop for the one case the PID cannot cover:
+    a recycled PID now belonging to some unrelated process.
     """
     try:
         base = os.environ.get("TEMP") or os.environ.get("TMPDIR") or tempfile.gettempdir()
         cutoff = time.time() - max_age_hours * 3600
-        for path in glob.glob(os.path.join(base, "qa-cdp-*")):
+        for name in os.listdir(base):
+            match = _PROFILE_DIR_RE.fullmatch(name)
+            if not match:
+                continue
+            path = os.path.join(base, name)
             try:
-                if os.path.isdir(path) and os.path.getmtime(path) < cutoff:
-                    shutil.rmtree(path, ignore_errors=True)
+                if not os.path.isdir(path):
+                    continue
+                if _pid_alive(int(match.group(1))):
+                    continue
+                if os.path.getmtime(path) >= cutoff:
+                    continue
+                shutil.rmtree(path, ignore_errors=True)
             except Exception:
                 pass
     except Exception:
@@ -553,9 +793,27 @@ def _sweep_stale_profiles(max_age_hours=6):
 # CDP handshake + client
 # --------------------------------------------------------------------------
 
-def wait_for_ws(port, tries=60, delay=0.2):
-    """Poll ``/json`` until the browser exposes a page target; return its ws URL."""
+def wait_for_ws(port, tries=60, delay=0.2, proc=None):
+    """Poll ``/json`` until the browser exposes a page target; return its ws URL.
+
+    Pass ``proc`` so a browser that died during startup is reported AS a dead
+    browser. Its stdout/stderr go to DEVNULL, so the reason is already lost;
+    without this poll the user then waits out the full timeout and is told the
+    "CDP endpoint was never exposed", which points at the protocol rather than at
+    the process that never came up (a bad --user-data-dir, a missing shared
+    library, a sandbox refusal). The exit code is the one clue left — surface it.
+    """
     for _ in range(tries):
+        if proc is not None:
+            code = proc.poll()
+            if code is not None:
+                raise QAError(
+                    "The browser exited with code {} before exposing its debugging port.\n"
+                    "Common causes: a profile directory that is not writable, a missing "
+                    "system library, or sandboxing refused in a container (try running the "
+                    "probe as a non-root user, or set CLAUDE_QA_BROWSER to a different "
+                    "Chromium-family binary).".format(code)
+                )
         try:
             with urllib.request.urlopen("http://127.0.0.1:{}/json".format(port), timeout=2) as resp:
                 tabs = json.load(resp)
@@ -662,6 +920,13 @@ def connect(ws_url, event_handler=None, timeout=30):
 def normalize_path(raw):
     """Accept a page path with or without a leading slash.
 
+    A fully-qualified URL is passed through UNTOUCHED. Every script normalises its
+    page argument before calling ``resolve_url``, so without this the full-URL
+    branch in ``resolve_url`` could never be reached from the command line:
+    ``https://example.com/a`` became ``/https://example.com/a`` and then
+    ``http://localhost:3000/https://example.com/a``, quietly probing a 404 on the
+    wrong host instead of the site the user named.
+
     Also recovers a single-segment leading-slash argument that Git Bash's MSYS
     path conversion rewrote into ``C:/Program Files/Git/<page>`` — that mangling
     otherwise produces a bogus ``http://host:portC:/...`` URL and the browser
@@ -669,6 +934,8 @@ def normalize_path(raw):
     """
     if not raw or raw in ("home", "index", "root", "/"):
         return "/"
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", str(raw).strip()):
+        return str(raw).strip()
     p = str(raw).replace("\\", "/")
     if ":" in p and re.search(r"(^|/)Git(/|$)", p):
         p = p.rstrip("/")
@@ -681,9 +948,14 @@ def normalize_path(raw):
 
 
 def resolve_url(config, path):
-    """Join the configured web base URL with a page path."""
-    if path and re.match(r"^https?://", str(path)):
-        return str(path)
+    """Join the configured web base URL with a page path.
+
+    A page argument that is already a full URL wins outright — the same scheme
+    test ``normalize_path`` uses, so the two agree and a URL survives the round
+    trip both scripts make (normalize, then resolve).
+    """
+    if path and re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", str(path).strip()):
+        return str(path).strip()
     base = (config.get("web.url") if config else None) or DEFAULTS["web"]["url"]
     return base.rstrip("/") + normalize_path(path)
 
@@ -695,19 +967,32 @@ def slug(path):
     return s or "home"
 
 
-def output_path(config, *parts):
-    """Resolve a path under the configured output dir, creating parent dirs."""
+def output_path(config, *parts, is_dir=False):
+    """Resolve a path under the configured output dir, creating parent dirs.
+
+    ``is_dir=True`` means the resolved path is itself a directory to create;
+    otherwise it is treated as a FILE and only its parent is created.
+
+    The caller must say which. Inferring it from "does this end in an extension?"
+    silently did the wrong thing for any file without one: ``page_shot.py / out``
+    created a DIRECTORY named ``out`` and then died with a raw PermissionError
+    trying to open it for writing, leaving the junk directory behind.
+    """
+    is_dir = bool(is_dir)
     out_dir = (config.get("output.dir") if config else None) or DEFAULTS["output"]["dir"]
+    if not isinstance(out_dir, str):
+        raise QAError("Config key 'output.dir' must be a directory path string, "
+                      "but it is {} ({!r}).".format(type(out_dir).__name__, out_dir))
     out_dir = os.path.expanduser(os.path.expandvars(out_dir))
     if not os.path.isabs(out_dir):
         root = getattr(config, "root", None) or os.getcwd()
         out_dir = os.path.join(root, out_dir)
     full = os.path.normpath(os.path.join(out_dir, *[str(p) for p in parts]))
-    parent = os.path.dirname(full) if os.path.splitext(full)[1] else full
+    target = full if is_dir else (os.path.dirname(full) or ".")
     try:
-        os.makedirs(parent, exist_ok=True)
+        os.makedirs(target, exist_ok=True)
     except OSError as exc:
-        raise QAError("Could not create output directory {}: {}".format(parent, exc))
+        raise QAError("Could not create output directory {}: {}".format(target, exc))
     return full
 
 

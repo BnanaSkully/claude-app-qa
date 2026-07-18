@@ -3,6 +3,59 @@
 Notable changes to the `qa` plugin. Versions follow [semver](https://semver.org/); the version in
 `plugin.json` is what installers pin to, so it is bumped on every user-visible change.
 
+## [0.3.0] — 2026-07-18
+
+Second review pass, on the Python probes. Several of these were reproduced doing real damage, so
+update before running `/qa:bug-sweep` against anything you care about.
+
+### Fixed — safety
+- **The confirm-dialog canceller clicked destructive buttons.** `ui_crawl` dismisses dialogs by
+  clicking the first button matching `cancel|close|keep|dismiss`. A dialog whose *destructive*
+  action reads "Cancel plan", "Cancel subscription" or "Close account" matches that regex, so the
+  safety mechanism performed the destructive action. Reproduced against a fixture. It now presses
+  Escape first, and only falls back to a click on an aria-label close, `value="cancel"`, or an
+  exact-word match — every candidate gated through the danger lists.
+- **The destructive skip list missed about 35 labels**, including `Send invoice` and
+  `Email customer`, which mail a real person from a test run — something no database restore
+  undoes. The list is broadened, and a separate irreversible-external category (send, email, SMS,
+  notify, invite, webhook, charge) is skipped **even under `--all`**.
+- **The stale-profile sweep deleted unrelated directories.** The glob was `qa-cdp-*`, which matched
+  anything a user happened to name that way; a seeded `qa-cdp-my-important-notes` was recursively
+  deleted. Now an anchored match on the shape the launcher actually writes, plus a PID-liveness
+  check — a live run's profile is identified by a fact rather than guessed at from mtime.
+
+### Fixed — correctness
+- **Every `position: fixed` element was invisible to the crawler**, because all four visibility
+  tests used `offsetParent !== null`, which is null by spec for fixed positioning. Fixed FABs went
+  unclicked, fixed error toasts went unreported, and worst, a fixed modal was not detected as open
+  *while its buttons were still enumerated* — so the crawler clicked into modals it did not know
+  were there.
+- **A failed measurement was reported as a clean result with exit 0.** `m = cdp.js(MEASURE_JS) or {}`
+  turned a JS timeout into a defect-free viewport, making a timed-out probe and a genuinely clean
+  page indistinguishable — the exact false clean this plugin exists to prevent. Failures are now
+  flagged per viewport, counted, warned about on stderr, and exit **4** ("evidence not
+  trustworthy"). A genuinely clean run still exits 0.
+- Environment overrides permanently poisoned the module-level `DEFAULTS`, so a second
+  `load_config()` in the same process returned the old override even after the variable was unset.
+- A malformed config produced raw tracebacks instead of a clean exit 2 — including the quiet case
+  where `"web": "a-string"` silently fell back to `localhost:3000` and drove the wrong app.
+- An output filename with no extension created a *directory* and then crashed.
+- A full URL passed as the page argument was mangled into `http://localhost:3000/https://...`.
+- `shutdown()` ran twice on every error path, doubling the sweep's exposure window.
+
+### Fixed — portability
+- On macOS, none of the browser's helper processes were ever killed: the filter matched exact
+  process names and macOS uses `Google Chrome Helper (Renderer)` and friends. Since those
+  reparented helpers are precisely what leak, the cleanup was inoperative there.
+- The POSIX kill was `pkill -f <leaf>` with no process-name filter, so anything whose command line
+  contained the profile path died — including a wrapper shell. Now filtered, with SIGTERM then
+  SIGKILL, and an explicit error when `ps` is absent.
+
+### Known behaviour change
+The broadened destructive list reduces crawl coverage on a normal app: Approve, Publish, Merge,
+Restore, Clear and Archive are now skipped by default. That is the intended trade — `--all` restores
+them, except for the irreversible-external category, which it deliberately does not.
+
 ## [0.2.0] — 2026-07-18
 
 Pre-publication review pass. One defect here made most of the configuration inert, so anyone who
