@@ -37,12 +37,26 @@ except Exception:  # pragma: no cover - psutil is genuinely optional
 
 try:
     import websocket  # websocket-client
+    _WEBSOCKET_IMPORT_ERROR = None
 except ImportError as exc:  # pragma: no cover
-    raise SystemExit(
-        "the qa probes need the 'websocket-client' package.\n"
-        "Install it with:  pip install -r requirements.txt\n"
-        f"(import error: {exc})"
-    )
+    # Deliberately NOT fatal at import time. Only the CDP connection needs this
+    # package; loading config, resolving URLs and computing output paths do not.
+    # Killing the process on import makes the module unusable for anything that
+    # merely wants to read configuration — including tooling that has no browser
+    # and never will. The error is raised at the point of actual use instead,
+    # where it is both accurate and actionable.
+    websocket = None
+    _WEBSOCKET_IMPORT_ERROR = exc
+
+
+def _require_websocket():
+    """Raise a clear, actionable error at the moment a CDP connection is needed."""
+    if websocket is None:
+        raise QAError(
+            "the qa probes need the 'websocket-client' package to drive a browser.\n"
+            "Install it with:  pip install -r requirements.txt\n"
+            "(import error: {})".format(_WEBSOCKET_IMPORT_ERROR)
+        )
 
 
 # --------------------------------------------------------------------------
@@ -627,6 +641,7 @@ class CDP:
 
 def connect(ws_url, event_handler=None, timeout=30):
     """Open the CDP websocket and return a ``CDP`` client."""
+    _require_websocket()
     if not ws_url:
         raise QAError(
             "Could not reach the browser's CDP endpoint.\n"
